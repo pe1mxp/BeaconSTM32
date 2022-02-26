@@ -45,7 +45,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
-DMA_HandleTypeDef hdma_spi1_tx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -53,7 +52,6 @@ TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart6;
-DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -67,7 +65,6 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_DMA_Init(void);
 static void MX_USART6_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void PrepairVariablesBand1(void);
@@ -125,13 +122,14 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
-  MX_DMA_Init();
   MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
+  char text1 [] = "W4INST\r\n";
+  char text2 [] = "W4PPS\r\n";
+  char text3 [] = "STRTUP\r\n";
+  char text4 [] = "BSTART\r\n";
 
-  HAL_TIM_Base_Start_IT(&htim2);
-  HAL_TIM_Base_Start_IT(&htim3);
-  HAL_TIM_Base_Start_IT(&htim4);
+  SecondStart;
 
   __INLINE void Create_register()
   {
@@ -391,12 +389,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-	     if (StartupDone == 0) // Run once or calibrate
+	     StartupDone = 1;
+	     if (StartupDone == 0) // Run once to initialize DDS
 	     {
 	    	Create_register();
 	    	Create_instruction();
@@ -417,15 +411,22 @@ int main(void)
 
 	        WaitForInstruction = 1;
 	        StartupDone = 1;
+	        HAL_UART_Transmit(&huart6, text3, sizeof(text3), HAL_MAX_DELAY);
 	     }
 
-//	     SERIAL.println("W4INST  ");
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
+
+
+      HAL_UART_Transmit(&huart6, text1, sizeof(text1), HAL_MAX_DELAY);
 
 	    STM32outputON; // AtmegaCanSendData                             // digitalWrite(STM32output, HIGH); // AtmegaCanSendData
 
     do                                                                   // do
     {                                                                    // {
-	    HAL_UART_Receive_DMA(&huart1, STM32ReadBuffer, buffsize);	     //    if (STM32.available()>0)
+	    HAL_UART_Receive(&huart1, STM32ReadBuffer, buffsize, HAL_MAX_DELAY);	     //    if (STM32.available()>0)
 	                                                                     //    {
 	                                                                     //       STM32.readBytes(STM32ReadBuffer, buffsize);
 
@@ -533,25 +534,26 @@ int main(void)
              MaximumTime = 599;
           }
 
-//	      SERIAL.print(STM32ReadBuffer[6]); SERIAL.print(":"); SERIAL.println(STM32ReadBuffer[7]);
+
+      HAL_UART_Transmit(&huart6, text2, sizeof(text2), HAL_MAX_DELAY);
 
 	     while (WaitFor1PPS == 1)
 	     {
-	           PPSdetect = PPSinput;
+//	           PPSdetect = PPSinput;
 
-	           if (PPSdetect == 0) // Input is inverted
+	           if (PPSinput == 0) // Input is inverted
 	           {
 
-	              PPSdetect = 1;
+//	              PPSdetect = 1;
 	              z = 1;
 	              WaitFor1PPS = 0;
 	           }
 	     }
 
-	            SecondsStart;
+	            SecondStart;
 	            SPIsequenceStart;
 	            SymbolDurationStart;
-
+	            HAL_UART_Transmit(&huart6, text4, sizeof(text4), HAL_MAX_DELAY);
 	      do
 	      {
 /*	    	     uint8_t Band1Mode[6][176]        = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -572,7 +574,7 @@ int main(void)
 
 	       } while (SecondTimer < MaximumTime); //  ModeBand1counter moet nog geimplemteerd worden
 
-	      SecondsStop;
+	      SecondStop;
 	      SPIsequenceStop;
 	      SymbolDurationStop;
 	      z = 0;
@@ -648,7 +650,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -677,6 +679,7 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
@@ -696,9 +699,21 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -722,6 +737,7 @@ static void MX_TIM3_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
@@ -741,9 +757,21 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_OC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -767,6 +795,7 @@ static void MX_TIM4_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM4_Init 1 */
 
@@ -786,9 +815,21 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_OC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -865,25 +906,6 @@ static void MX_USART6_UART_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA2_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-  /* DMA2_Stream5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -928,15 +950,34 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(STM32output_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : STM32input_Pin PPS_Pin */
-  GPIO_InitStruct.Pin = STM32input_Pin|PPS_Pin;
+  /*Configure GPIO pin : STM32input_Pin */
+  GPIO_InitStruct.Pin = STM32input_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(STM32input_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PPS_Pin */
+  GPIO_InitStruct.Pin = PPS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(PPS_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if(GPIO_Pin == PPS_Pin)
+    {
+    	LEDtoggle;
+    	HAL_GPIO_EXTI_IRQHandler(PPS_Pin);
+    }
+}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -953,6 +994,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
      if (htim->Instance == TIM2)  // Timetick 1 second
      {
 	    SecondTimer++;
+
+	    __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
      }
 
      if (htim->Instance == TIM3) // Timetick at least 4x faster then TIM4
@@ -962,14 +1005,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
         case 1:
                CS1on;
 
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][0], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][1], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][2], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][3], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][4], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][5], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][6], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band1[freq1][7], 1);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][0], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][1], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][2], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][3], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][4], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][5], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][6], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band1[freq1][7], 1, 100);
 
                UPD1on;
                UPD1off;
@@ -980,14 +1023,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
         case 2:
                CS2on;
 
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][0], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][1], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][2], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][3], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][4], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][5], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][6], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band2[freq2][7], 1);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][0], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][1], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][2], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][3], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][4], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][5], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][6], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band2[freq2][7], 1, 100);
 
                UPD2on;
                UPD2off;
@@ -998,14 +1041,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
         case 3:
                CS1on;
 
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][0], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][1], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][2], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][3], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][4], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][5], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][6], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band3[freq3][7], 1);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][0], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][1], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][2], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][3], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][4], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][5], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][6], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band3[freq3][7], 1, 100);
 
                UPD1on;
                UPD1off;
@@ -1016,14 +1059,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
         case 4:
                CS2on;
 
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][0], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][1], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][2], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][3], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][4], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][5], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][6], 1);
-               HAL_SPI_Transmit_DMA(&hspi1, &Band4[freq4][7], 1);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][0], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][1], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][2], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][3], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][4], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][5], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][6], 1, 100);
+               HAL_SPI_Transmit(&hspi1, &Band4[freq4][7], 1, 100);
 
                UPD2on;
                UPD2off;
@@ -1035,9 +1078,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
 
         break;
         }
+      __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
      }
 
-     if (htim->Instance == TIM2) // Ticker is 0,1ms
+     if (htim->Instance == TIM4) // Ticker is 0,1ms
      {     // Interrupt Counter need also to be set 0
         Band1ModeTimerCounter++;
         Band2ModeTimerCounter++;
@@ -1091,6 +1135,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
 
            Band4ModeTimerCounter = 0;
         }
+      __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
      }
 }
 /* USER CODE END 4 */
